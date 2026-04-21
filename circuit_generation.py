@@ -1,9 +1,9 @@
 from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
 from qiskit.circuit.library import EfficientSU2, RealAmplitudes, TwoLocal
-from torch import ceil, log2
+from math import log2, ceil
 
-from frame_potential_gpu import frame_potential_gpu
+from frame_potential_gpu import compute_frame_potential_gpu
 
 
 # ── Built-in ansätze ──────────────────────────────────────────────────────────
@@ -136,7 +136,12 @@ def circuit_depth(circuit: QuantumCircuit) -> int:
 #implementation of the low depth t-designs with epsilon approximation, as described in https://arxiv.org/pdf/2407.07754
 
 
-def epsilon_approx(circuit: QuantumCircuit, epsilon: float, i: int, j: int, t: int, name: str = "brickwall") -> QuantumCircuit:
+def epsilon_approx(circuit: QuantumCircuit, 
+                   epsilon: float, i: int, j: int, t: int, 
+                   name: str = "brickwall", 
+                   reps : int = None,
+                   max_reps: int = 10,
+                   parameter_prefix: str = "ε") -> QuantumCircuit:
     """
     Add an epsilon-approximation on the given circuit between qubits i and j.
     This is the function used in order to implement the extremely low depth t-designs.
@@ -145,27 +150,45 @@ def epsilon_approx(circuit: QuantumCircuit, epsilon: float, i: int, j: int, t: i
     # For now, i call another ansatz and incress it number of repetitions until the frame potential is low enough, which means that the circuit is an epsilon-approximation of a t-design.
     
     n_qubits = j - i + 1
-    reps = 1
-    epsilon_circuit = build_ansatz(name, n_qubits=n_qubits, reps=reps)
-    while frame_potential_gpu(epsilon_circuit, t) > epsilon:
-        reps += 1
+    if reps is None:
+        print(f"Finding epsilon-approximation for qubits {i} to {j} with epsilon={epsilon} and t={t}...")
+        reps = 1
         epsilon_circuit = build_ansatz(name, n_qubits=n_qubits, reps=reps)
+        data = compute_frame_potential_gpu(epsilon_circuit, t=t, verbose=False)
+        F_p = data["frame_potential"]
+        F_Haar = data["haar_value"]
+        while abs(F_p - F_Haar) > epsilon and reps < max_reps:
+            reps += 1
+            epsilon_circuit = build_ansatz(name, n_qubits=n_qubits, reps=reps)
+            data = compute_frame_potential_gpu(epsilon_circuit, t=t, verbose=False)
+            F_p = data["frame_potential"]
+            F_Haar = data["haar_value"]
+    epsilon_circuit = build_ansatz(name, n_qubits=n_qubits, reps=reps)
+    params = ParameterVector(parameter_prefix, len(epsilon_circuit.parameters))
+    epsilon_circuit.assign_parameters(params, inplace=True)    
+
     circuit.compose(epsilon_circuit, qubits=range(i, j+1), inplace=True)
+    return reps
 
-    return circuit
-
-def low_depth_t_design(n_qubits: int, t: int, epsilon: float) -> QuantumCircuit:
+def low_depth_t_design(n_qubits: int, t: int, epsilon: float, xi: int = None) -> QuantumCircuit:
     """
     Construct a low-depth t-design ansatz with epsilon-approximation.
     """
     circuit = QuantumCircuit(n_qubits)
 
-    xi = ceil(log2(n_qubits*t**2/epsilon))
-
+    if xi is None:
+        # use the formula from the paper to determine xi based on n_qubits, t and epsilon
+        xi = ceil(log2(n_qubits*t**2/epsilon))
+    reps = None
+    print(f"Constructing low-depth t-design with n_qubits={n_qubits}, t={t}, epsilon={epsilon}, xi={xi}...")
     for i in range(0,n_qubits,2*xi):
-        circuit = epsilon_approx(circuit, epsilon/n_qubits, i, min(i+xi-1, n_qubits-1), t)
+        print(f"Adding epsilon-approximation for qubits {i} to {min(i+2*xi-1, n_qubits-1)}...")
+        reps = epsilon_approx(circuit, epsilon/n_qubits, i, min(i+2*xi-1, n_qubits-1), t, reps=reps, parameter_prefix = f"ε1_{i}")
+    print(f"Finished first layer of epsilon-approximations with {reps} repetitions. Now adding the second layer...")
     for i in range(xi, n_qubits, 2*xi):
-        circuit = epsilon_approx(circuit, epsilon/n_qubits, i, min(i+xi-1, n_qubits-1), t)
+        print(f"Adding epsilon-approximation for qubits {i} to {min(i+2*xi-1, n_qubits-1)}...")
+        reps = epsilon_approx(circuit, epsilon/n_qubits, i, min(i+2*xi-1, n_qubits-1), t, reps=reps, parameter_prefix = f"ε2_{i}")
+    print(f"Finished second layer of epsilon-approximations with {reps} repetitions. Low-depth t-design construction complete.")
 
     return circuit
 

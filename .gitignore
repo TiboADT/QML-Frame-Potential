@@ -1,3 +1,4 @@
 # ignore generated data and pycache
 data/
 __pycache__/
+.venv/
