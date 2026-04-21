@@ -4,28 +4,30 @@ Frame Potential — GPU accelerated with PyTorch
 
 Installation
 ------------
-1. Check your xpu version:
-        nvidia-smi
-   Look for "xpu Version: XX.X" in the top-right corner.
+The code auto-detects the best available backend in this priority order:
+    1. CUDA  (NVIDIA GPU)   — torch.cuda.is_available()
+    2. XPU   (Intel GPU)    — torch.xpu.is_available()
+    3. CPU   (fallback)
 
-2. Install PyTorch with the matching xpu build.
-   Go to https://pytorch.org/get-started/locally/ and pick your config, or:
+Install PyTorch for your hardware:
 
-        # xpu 12.1 (most common on modern systems):
-        pip install torch --index-url https://download.pytorch.org/whl/cu121
+    # NVIDIA — CUDA 12.1 (most common on modern systems):
+    pip install torch --index-url https://download.pytorch.org/whl/cu121
 
-        # xpu 11.8:
-        pip install torch --index-url https://download.pytorch.org/whl/cu118
+    # NVIDIA — CUDA 11.8:
+    pip install torch --index-url https://download.pytorch.org/whl/cu118
 
-        # No GPU / CPU-only (fallback, still runs but no speedup):
-        pip install torch --index-url https://download.pytorch.org/whl/cpu
+    # Intel GPU — XPU (requires intel-extension-for-pytorch):
+    pip install torch intel-extension-for-pytorch
 
-3. Verify the install:
-        python -c "import torch; print(torch.xpu.is_available())"
-        # Should print: True
+    # CPU-only (fallback, no speedup vs original script):
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-4. Other dependencies (unchanged from the original script):
-        pip install qiskit qiskit-aer numpy tqdm
+Verify the install:
+    python -c "from frame_potential_gpu import get_device; get_device()"
+
+Other dependencies:
+    pip install qiskit qiskit-aer numpy tqdm
 
 Usage
 -----
@@ -53,21 +55,33 @@ from qiskit.circuit import ParameterVector
 
 def get_device(verbose: bool = True) -> torch.device:
     """
-    Return the best available device (xpu GPU > CPU).
-    Prints a summary of what was found.
+    Return the best available device, checked in this order:
+        1. CUDA  (NVIDIA GPU)
+        2. XPU   (Intel GPU, requires intel-extension-for-pytorch)
+        3. CPU   (fallback)
     """
-    if torch.xpu.is_available():
-        device = torch.device("xpu")
-        props  = torch.xpu.get_device_properties(device)
-        vram   = props.total_memory / 1024**3
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
         if verbose:
-            print(f"GPU found : {props.name}")
+            props = torch.cuda.get_device_properties(device)
+            vram  = props.total_memory / 1024**3
+            print(f"GPU found : {props.name}  (CUDA)")
             print(f"VRAM      : {vram:.1f} GB")
-            print(f"xpu      : {torch.version.xpu}")
+            print(f"CUDA      : {torch.version.cuda}")
+
+    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+        device = torch.device("xpu")
+        if verbose:
+            props = torch.xpu.get_device_properties(device)
+            vram  = props.total_memory / 1024**3
+            print(f"GPU found : {props.name}  (Intel XPU)")
+            print(f"VRAM      : {vram:.1f} GB")
+
     else:
         device = torch.device("cpu")
         if verbose:
             print("No GPU found — running on CPU (no speedup vs original script)")
+
     return device
 
 
@@ -96,6 +110,15 @@ def recommended_batch_size(n: int, d: int, vram_gb: float, dtype: torch.dtype) -
     B = int(math.sqrt(usable_bytes / (d * d * bytes_per_element)))
     B = max(1, min(B, n))                           # clamp to [1, N]
     return B
+
+
+def _get_vram_gb(device: torch.device) -> float:
+    """Return total VRAM in GB for a CUDA or XPU device."""
+    if device.type == "cuda":
+        return torch.cuda.get_device_properties(device).total_memory / 1024**3
+    elif device.type == "xpu":
+        return torch.xpu.get_device_properties(device).total_memory / 1024**3
+    return 0.0
 
 
 # ── CPU sampling (unchanged from original) ────────────────────────────────────
@@ -189,21 +212,20 @@ def frame_potential_gpu(
 
     N = unitariesA.shape[0]
 
-    # Prefer float64 accumulation for numerical stability, but some XPU devices
-    # do not expose fp64. In that case, fall back to float32 on-device.
+    # Prefer float64 accumulation for numerical stability.
+    # Some XPU and older CUDA devices do not expose fp64 — fall back to float32.
     accum_dtype = torch.float64
-    if device.type == "xpu":
-        try:
-            _ = torch.zeros(1, dtype=torch.float64, device=device)
-        except RuntimeError:
-            accum_dtype = torch.float32
-            warnings.warn(
-                "Device does not support fp64; accumulating in float32.",
-                RuntimeWarning,
-            )
+    try:
+        _ = torch.zeros(1, dtype=torch.float64, device=device)
+    except RuntimeError:
+        accum_dtype = torch.float32
+        warnings.warn(
+            "Device does not support fp64; accumulating in float32.",
+            RuntimeWarning,
+        )
 
-    total = torch.tensor(0.0, dtype=accum_dtype, device=device) 
-    X_2 = torch.tensor(2.0, dtype=accum_dtype, device=device)  # precompute 2.0 for power
+    total = torch.tensor(0.0, dtype=accum_dtype, device=device)
+    sum_sq = torch.tensor(0.0, dtype=accum_dtype, device=device)  # Σ |tr|^{4t}, for variance
 
     # If no batch_size given, try the full N×N at once.
     # This is optimal when it fits — zero loop overhead.
@@ -211,12 +233,10 @@ def frame_potential_gpu(
         batch_size = N
 
     for i in range(0, N, batch_size):
-        # Slice batch i and add a size-1 dimension at axis 1
         # shape: (B, d, d)  →  (B, 1, d, d)
         Ai = unitariesA[i : i + batch_size].unsqueeze(1)
 
         for j in range(0, N, batch_size):
-            # Slice batch j and add a size-1 dimension at axis 0
             # shape: (B', d, d)  →  (1, B', d, d)
             Bj = unitariesB[j : j + batch_size].unsqueeze(0)
 
@@ -244,13 +264,14 @@ def frame_potential_gpu(
             # |Tr(Uᵢ†Uⱼ)|^{2t} then sum over all pairs in this block
             # .abs() returns real, ** (2*t) raises to power, .sum() accumulates
             block_sum = torch.sum(torch.abs(traces) ** (2 * t)).to(accum_dtype)
-            total += block_sum
-            X_2 += torch.sum(torch.abs(traces) ** (4 * t)).to(accum_dtype)  # for variance estimation (not used in final result, but could be printed for diagnostics)
+            total   += block_sum
+            sum_sq  += torch.sum(torch.abs(traces) ** (4 * t)).to(accum_dtype)
 
-    # Divide by N² to get the Monte Carlo average
+    # F^(t) = mean of |Tr(Ui†Uj)|^{2t}
     F = (total / (N * N)).item()
-    V = (X_2 / (N * N) - F**2).item()  # sample variance (not used in final result, but could be printed for diagnostics)
-    fidelity_error = math.sqrt(V / (N * N)) if V > 0 else 0.0  # standard error of the mean
+    # Variance of the estimator: Var[X] = E[X²] - E[X]²
+    V = (sum_sq / (N * N) - F ** 2).item()
+    fidelity_error = math.sqrt(max(V, 0.0) / (N * N))  # standard error of the mean
     return {
         "frame_potential": F,
         "variance": V,
@@ -306,9 +327,9 @@ def compute_frame_potential_gpu(
 
     d = 2 ** circuit.num_qubits
 
-    # Auto batch size from VRAM if on GPU and no batch_size given
-    if batch_size is None and device.type == "xpu":
-        vram_gb    = torch.xpu.get_device_properties(device).total_memory / 1024**3
+    # Auto batch size from VRAM if on a GPU device and no batch_size given
+    if batch_size is None and device.type in ("cuda", "xpu"):
+        vram_gb    = _get_vram_gb(device)
         batch_size = recommended_batch_size(n_samples, d, vram_gb, dtype)
         if verbose:
             print(f"Auto batch size : {batch_size}  (VRAM={vram_gb:.1f}GB, d={d})")
