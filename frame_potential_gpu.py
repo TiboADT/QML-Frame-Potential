@@ -69,7 +69,7 @@ def get_device(verbose: bool = True) -> torch.device:
             print(f"VRAM      : {vram:.1f} GB")
             print(f"CUDA      : {torch.version.cuda}")
 
-    elif hasattr(torch, "xpu") and torch.xpu.is_available():
+    elif torch.xpu.is_available():
         device = torch.device("xpu")
         if verbose:
             props = torch.xpu.get_device_properties(device)
