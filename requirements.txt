@@ -1,0 +1,18 @@
+jupyter
+
+qiskit
+qiskit-ibm-runtime
+qiskit[visualization]
+qiskit-machine-learning
+
+sciimport kit-learn 
+
+qiskit-aer
+qiskit-aer-gpu
+
+matplotlib
+ipympl
+numpy
+pandas
+
+tqdm
