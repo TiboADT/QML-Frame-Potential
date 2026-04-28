@@ -1,5 +1,6 @@
 
 from QNN_framework import *
+from data_loading import Build_artitifical_data_set
 from itertools import product
 
 Name = ["real_amp", 
