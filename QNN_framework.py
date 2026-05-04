@@ -162,7 +162,9 @@ class Reuploading_classifier(NeuralNetworkClassifier):
         # initialize the results folder
         init_results_folder()
 
-    def save(self, dataset_data: dict = None, verbose: bool = True, force_save: bool = False):
+    def save(self, dataset_data: dict = None, 
+             path : str = "./data/results/classifier_results",
+             verbose: bool = True, force_save: bool = False):
         # save the training results to a file
 
         model_info = self.model_info(dataset_data)
@@ -181,7 +183,9 @@ class Reuploading_classifier(NeuralNetworkClassifier):
         result_data = {
             "objective_func_vals": self.objective_func_vals,
         }
-        save_results(model_info=model_info, result_info=result_info, result_data=result_data, verbose=verbose, force_save=force_save)
+        save_results(model_info=model_info, result_info=result_info, result_data=result_data, 
+                     path=path,
+                     verbose=verbose, force_save=force_save)
 
     def model_info(self, dataset_data: dict = None) -> dict:
         args_embeding = self._neural_network.args_embeding
@@ -194,6 +198,7 @@ class Reuploading_classifier(NeuralNetworkClassifier):
             "anzats_reps": args_anzats["reps"],
             "layer_reps" : self._neural_network.reps,
             "number_of_qubits": self._neural_network.circuit.num_qubits,
+            "number_of_parameters": len(self._neural_network.weight_params),
             "dataset_name": dataset_data["name"] if dataset_data is not None else "None",
         }
         return model_info

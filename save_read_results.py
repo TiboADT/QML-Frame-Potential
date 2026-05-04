@@ -10,15 +10,17 @@ def dict_to_id(result_info: dict) -> str:
     result_id = hashlib.sha256(values.encode()).hexdigest()
     return result_id
 
-def init_results_folder(path: str = "./data/results"):
+def init_results_folder(path: str = "./data/results",verbose: bool = True):
     """Initializes the results folder if it does not exist."""
     # check if the folder exists, if not, create it
     path = Path(path)
     if not path.exists():
         path.mkdir(parents=True, exist_ok=True)
-        print(f"Results folder created at {path}")
+        if verbose:
+            print(f"Results folder created at {path}")
     else:
-        print(f"Results folder already exists at {path}")
+        if verbose:
+            print(f"Results folder already exists at {path}")
 
 def check_exisiting_results(path: str = "./data/results", result_id: str = None) -> bool:
     """Checks if results already exist for the given result_id."""
@@ -26,9 +28,9 @@ def check_exisiting_results(path: str = "./data/results", result_id: str = None)
     return results_path.exists()
 
 def save_results(path: Path = "./data/results",
-                 model_info: dict = None,
-                 result_info: dict = None,
-                 result_data: dict = None,
+                 model_info: dict = {},
+                 result_info: dict = {},
+                 result_data: dict = {},
                  verbose: bool = True,
                  force_save: bool = False):
     """Saves the training results to a file."""
@@ -36,7 +38,7 @@ def save_results(path: Path = "./data/results",
     # i want to add a prompt to add potential comments on a set of result that are not clear of writen in the standars informations
 
     # Generate a UUid from the result_data to ensure that we do not save the same results twice
-
+    init_results_folder(path, verbose=verbose)
 
     result_id = dict_to_id(model_info)
 
@@ -118,3 +120,45 @@ def read_results(path : Path = None,
 
     return result_info, data
 
+
+
+def build_result_table(path : str = "./data/results", 
+                       variables : list = None,
+                       verbose: bool = True):
+    """Builds a table of results from the saved results."""
+    path = Path(path)
+    if not path.exists():
+        if verbose:
+            print(f"No results found at {path}.")
+        return None
+    
+    result_table = []
+    
+    for result_folder in path.glob("*"):
+        if result_folder.is_dir():
+            details_path = result_folder / "details.txt"
+            results_info_path = result_folder / "results_info.txt"
+            if details_path.exists() and results_info_path.exists():
+                model_info = {}
+                with open(details_path, "r") as f:
+                    for line in f:
+                        key, value = line.strip().split(": ")
+                        model_info[key] = value
+                result_info = {}
+                with open(results_info_path, "r") as f:
+                    for line in f:
+                        key, value = line.strip().split(": ")
+                        result_info[key] = value
+                # merge the 2 dictionarys and sort them
+                info = {**model_info, **result_info}
+                Info_list = []
+                if variables is None:
+                    variables = sorted(info.keys())
+                for var in variables:
+                    if var in info:
+                        Info_list.append(info[var])
+                    else:
+                        Info_list.append("None")
+                result_table.append(Info_list)
+    
+    return result_table,variables

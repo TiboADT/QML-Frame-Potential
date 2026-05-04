@@ -50,6 +50,8 @@ from qiskit import QuantumCircuit
 from qiskit.quantum_info import Operator
 from qiskit.circuit import ParameterVector
 
+from save_read_results import save_results
+
 
 # ── Device setup ──────────────────────────────────────────────────────────────
 
@@ -298,6 +300,8 @@ def compute_frame_potential_gpu(
     batch_size: Optional[int] = None,
     seed: Optional[int] = None,
     verbose: bool = True,
+    save: bool = False,
+    circuit_info: Optional[dict] = {},
 ) -> dict:
     """
     Full pipeline:
@@ -377,7 +381,7 @@ def compute_frame_potential_gpu(
             print(f"  ✗ Far from {t}-design")
         print(f"{'─'*50}")
 
-    return {
+    result = {
         "frame_potential" : F,
         "variance"        : result["variance"],
         "fidelity_error"  : result["fidelity_error"],
@@ -393,3 +397,11 @@ def compute_frame_potential_gpu(
         "device"          : str(device),
         "dtype"           : str(dtype),
     }
+    if save:
+        if verbose:
+            print("\nSaving results ...")
+        circuit_info["t"] = t
+        circuit_info["n_samples"] = n_samples
+        save_results(path="./data/results/frame_potential", model_info=circuit_info, result_info=result, verbose=verbose)
+
+    return result
