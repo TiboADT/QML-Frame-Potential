@@ -1,5 +1,6 @@
 from scripts.rolling_in_the_depth import *
 from data_loading import Build_artitifical_data_set
+from scripts.circuit_frame import *
 
 import argparse
 
@@ -15,15 +16,23 @@ if __name__ == "__main__":
 
 
     # args = parser.parse_args()
-    n_features = 4
+
+    circuit_frame_evaluation()
+
+
+
+
+if False:
+
+    n_features = 8
     n_classes = 2
 
-    X,y = Build_artitifical_data_set(500, n_features=n_features, n_classes=n_classes, display=False)
+    X,y = Build_artitifical_data_set(500, n_features=n_features, n_classes=n_classes, display=False, seed = 43256787564)
 
     rolling_in_the_depth(name_embeding="real_amp", name_anzats="real_amp", 
                          embedding_reps=1,
                          n_feature=n_features, 
                          optimizer=COBYLA(maxiter=100,rhobeg=0.4), 
-                         target_accuracy=0.9, max_depth=100, 
+                         target_accuracy=0.9, max_depth=20, 
                          X=X, y=y)
 
