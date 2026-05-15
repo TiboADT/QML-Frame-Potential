@@ -31,7 +31,7 @@ def build_ansatz(name: str,
     #determine n_qubits based on n_parameters, circuit type and number of repetitions if n_qubits is not provided
     if n_qubits is None:
         n_qubits = 1
-        while build_ansatz(name, n_qubits=n_qubits, n_parameters=n_parameters,  reps=reps).num_parameters < n_parameters:
+        while build_ansatz(name, n_qubits=n_qubits, n_parameters=n_parameters,  reps=reps, **kwargs).num_parameters < n_parameters:
             n_qubits += 1
     
     if name == "real_amp":
@@ -88,8 +88,11 @@ def build_ansatz(name: str,
         return qc
     elif name == "brickwall":
         return brickwall_anzat(n_qubits, reps, parameter_prefix)
-    elif name == "set" and "number" in kwargs:
-        return circuit_set(n_qubits, kwargs["number"], reps, parameter_prefix)
+    elif name == "set":
+        if "number" in kwargs:
+            return circuit_set(n_qubits, kwargs["number"], reps+1, parameter_prefix)
+        else:
+            raise ValueError("For 'set' ansatz, 'number' parameter is required.")
 
     else:
         raise ValueError(

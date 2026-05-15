@@ -137,6 +137,7 @@ def sample_unitaries_cpu(
     n_samples: int,
     rng: Optional[np.random.Generator] = None,
     verbose: bool = True,
+    parameter_composer = None,  # identity by default, can be customized
 ) -> np.ndarray:
     """
     Sample n_samples random unitaries on the CPU (Qiskit evaluation).
@@ -154,6 +155,8 @@ def sample_unitaries_cpu(
 
     for i in tqdm(range(n_samples), desc="Sampling on CPU", disable=not verbose):
         theta  = rng.uniform(0, 2 * np.pi, size=n_params)
+        if parameter_composer is not None:
+            parameter_composer(theta)
         Us[i]  = sample_unitary(circuit, theta)
 
     return Us
@@ -285,7 +288,7 @@ def frame_potential_gpu(
 
 def haar_frame_potential(t: int, d: int) -> float:
     """F_Haar^(t) ≈ t!  (large-d approximation, standard in QML literature)."""
-    if d < 2 * t:
+    if d <  t:
         warnings.warn(f"d={d} < 2t={2*t}: large-d approximation may be inaccurate.")
     return float(math.factorial(t))
 
@@ -302,6 +305,7 @@ def compute_frame_potential_gpu(
     verbose: bool = True,
     save: bool = False,
     circuit_info: Optional[dict] = {},
+    parameter_composer: Optional[callable] = None,
 ) -> dict:
     """
     Full pipeline:
@@ -345,8 +349,8 @@ def compute_frame_potential_gpu(
 
     # ── 2. Sample on CPU ─────────────────────────────────────────────────────
     rng = np.random.default_rng(seed)
-    Us_cpu_A = sample_unitaries_cpu(circuit, n_samples, rng=rng, verbose=verbose)
-    Us_cpu_B = sample_unitaries_cpu(circuit, n_samples, rng=rng, verbose=verbose)
+    Us_cpu_A = sample_unitaries_cpu(circuit, n_samples, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
+    Us_cpu_B = sample_unitaries_cpu(circuit, n_samples, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
 
     # ── 3. Transfer to GPU (once) ────────────────────────────────────────────
     if verbose:

@@ -30,11 +30,12 @@ class QNN_reuploading(EstimatorQNN):
                  reps=0, 
                  args_embeding= {"name": "real_amp", "circular": True}, 
                  args_anzats= {"name": "two_local_rx", "circular": True},
-                 pre_anzats = False,):
+                 pre_anzats = False,
+                 **kwargs):
         
         # compute the necessary number of qubits for the circuit
         args_embeding["n_parameters"] = n_feature
-        embeding_test = embedding_build(**args_embeding)
+        embeding_test = embedding_build(**args_embeding, **kwargs)
         n_qubits = embeding_test.num_qubits
 
         #build the circuit
@@ -48,13 +49,13 @@ class QNN_reuploading(EstimatorQNN):
 
         if pre_anzats:
             args_anzats["parameter_prefix"] = "θ_initial"
-            anzats_circuit = anzats_build(**args_anzats)
+            anzats_circuit = anzats_build(**args_anzats, **kwargs)
             weight_params.extend(anzats_circuit.parameters)
             circuit.compose(anzats_circuit, inplace=True)
             circuit.barrier()
         
         args_embeding["parameter_prefix"] = "x"
-        embeding_circuit = embedding_build(**args_embeding)
+        embeding_circuit = embedding_build(**args_embeding, **kwargs)
         input_params = list(embeding_circuit.parameters)
 
         for i in range(reps+1):
@@ -63,7 +64,7 @@ class QNN_reuploading(EstimatorQNN):
             circuit.barrier()
 
             args_anzats["parameter_prefix"] = f"θ_{i}"
-            anzats_circuit = anzats_build(**args_anzats)
+            anzats_circuit = anzats_build(**args_anzats, **kwargs)
             weight_params.extend(anzats_circuit.parameters)
             circuit.compose(anzats_circuit, inplace=True)
 

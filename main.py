@@ -1,4 +1,7 @@
+from qiskit_machine_learning.optimizers import L_BFGS_B
+
 from scripts.rolling_in_the_depth import *
+from scripts.who_let_the_circuit_out import *
 from data_loading import Build_artitifical_data_set
 from scripts.circuit_frame import *
 
@@ -17,6 +20,31 @@ if __name__ == "__main__":
 
     # args = parser.parse_args()
 
+    n_features = 8
+    n_classes = 2
+    n_dataset = 3
+    for i in range(n_dataset):
+        X,y = Build_artitifical_data_set(500, n_features=n_features, n_classes=n_classes, display=False, seed = 32143236+i*54678)
+        print(f"Dataset {i} built with seed {32143236+i*54678}")
+        who_let_the_circuit_out(embedding_reps=1,
+                            n_feature=n_features, 
+                            optimizer=COBYLA(maxiter=100,rhobeg=0.4), 
+                            target_accuracy=0.9, max_depth=20, 
+                            X=X, y=y)
+        print(f"first optimizer done for dataset {i}")
+
+        who_let_the_circuit_out(embedding_reps=1,
+                            n_feature=n_features, 
+                            optimizer=L_BFGS_B(maxiter=50), 
+                            target_accuracy=0.9, max_depth=20, 
+                            X=X, y=y)
+        print(f"Dataset {i} done")
+        print("--------------------------------------------------")
+
+
+
+
+if False:
     circuit_frame_evaluation()
 
 
