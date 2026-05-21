@@ -15,7 +15,7 @@ def test_depth(name_anzats, rep, n_parameters, **kwargs):
 
 def rolling_in_the_depth(X,y,name_embeding: str, embedding_reps: int, name_anzats: str,
                          n_feature: int, optimizer, 
-                         max_depth: int, target_accuracy: float = 0.9, max_iter: int = 100,
+                         max_depth: int, target_accuracy: float = 0.9, max_iter: int = 10,
                          compute_frame_potential: bool = True,
                          verbose: bool = False,
                         **kwargs):
@@ -69,7 +69,7 @@ def rolling_in_the_depth(X,y,name_embeding: str, embedding_reps: int, name_anzat
         
         estimator_classifier_linear.fit(X, y)
 
-        accuracy = estimator_classifier_linear.score(X, y)
+        accuracy = estimator_classifier_linear.score_train
         circuit_done[(reps, anzats_reps, pre_anzats)] = accuracy
         best_accuracy = max(best_accuracy, accuracy)
 

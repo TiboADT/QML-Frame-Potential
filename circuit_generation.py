@@ -14,6 +14,7 @@ def build_ansatz(name: str,
                  reps: int = 0, 
                  circular: bool = False, 
                  parameter_prefix: str = "θ",
+                 composition_liste = None,
                  **kwargs) -> QuantumCircuit:
     """
     Return a common hardware-efficient ansatz.
@@ -93,11 +94,61 @@ def build_ansatz(name: str,
             return circuit_set(n_qubits, kwargs["number"], reps+1, parameter_prefix)
         else:
             raise ValueError("For 'set' ansatz, 'number' parameter is required.")
+    elif name == "perfect_SU4":
+        return perfectSU4_anzatz(n_qubits, reps, parameter_prefix, acos_list=kwargs.get("acos_list", []))
 
     else:
         raise ValueError(
             f"Unknown ansatz '{name}'. Choose from: hea, real_amp, two_local_rx, ghz_like, brickwall"
         )
+
+def SU2(qc, q, params = None, i = 0, acos_list = []):
+    """
+    Apply a general SU(2) unitary on qubit q, parametrized by 3 parameters.
+    """
+    if params is None:
+        params = ParameterVector("θ", length=3)
+    qc.ry(params[i], q)
+    qc.rx(params[i+1], q)
+    acos_list.append(i+1)
+    qc.ry(params[i+2], q)
+    return i+3
+
+def perfectSU4_anzatz(n_qubits: int, reps: int, parameter_prefix: str, acos_list: list = []) -> QuantumCircuit:
+    """
+    Build a circuit with local perfect SU4 blocks, which are 2-qubit blocks that can represent any SU(4) unitary.
+    """
+
+
+    qc = QuantumCircuit(n_qubits)
+    params = ParameterVector(parameter_prefix, length= 2*n_qubits*(reps + 1) * (9 * n_qubits//2 + 9 * (n_qubits-1)//2))
+    indice = 0
+    for q in range(0, n_qubits):
+        indice = SU2(qc, q, params=params, i=indice, acos_list=acos_list)
+    for i in range(reps + 1):
+        for q in range(0, n_qubits-1, 2):
+            qc.cx(q, q+1)
+            qc.rz(params[indice], q)
+            qc.ry(params[indice + 1], q+1)
+            qc.cx(q+1, q)
+            qc.ry(params[indice + 2], q+1)
+            acos_list.extend([indice, indice+1, indice+2])
+            qc.cx(q, q+1)
+            indice = SU2(qc, q, params=params, i=indice + 3, acos_list=acos_list)
+            indice = SU2(qc, q+1, params=params, i=indice, acos_list=acos_list)
+        for q in range(1, n_qubits-1, 2):
+            qc.cx(q, q+1)
+            qc.rz(params[indice], q)
+            qc.ry(params[indice + 1], q+1)
+            qc.cx(q+1, q)
+            qc.ry(params[indice + 2], q+1)
+            acos_list.extend([indice, indice+1, indice+2])
+            qc.cx(q, q+1)
+            indice = SU2(qc, q, params=params, i=indice + 3, acos_list=acos_list)
+            indice = SU2(qc, q+1, params=params, i=indice, acos_list=acos_list)
+    
+    return qc
+
 
 
 def brickwall_anzat(n_qubits: int, reps: int, parameter_prefix: str) -> QuantumCircuit:

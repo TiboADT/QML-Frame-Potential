@@ -26,7 +26,7 @@ def who_let_the_circuit_out(X,y, embedding_reps: int,
         
         for i in numbers:
             print(f"Testing circuit with number {i}")
-            rolling_in_the_depth(X,y,
+            rolling_in_the_depth(X.copy(),y,
                                  name_embeding="set", 
                                  embedding_reps=embedding_reps, 
                                  name_anzats="set", 
