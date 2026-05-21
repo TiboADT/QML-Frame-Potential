@@ -125,7 +125,7 @@ def perfectSU4_anzatz(n_qubits: int, reps: int, parameter_prefix: str, acos_list
     indice = 0
     for q in range(0, n_qubits):
         indice = SU2(qc, q, params=params, i=indice, acos_list=acos_list)
-    for i in range(reps + 1):
+    for i in range(reps//2 + 1):
         for q in range(0, n_qubits-1, 2):
             qc.cx(q, q+1)
             qc.rz(params[indice], q)
@@ -136,6 +136,9 @@ def perfectSU4_anzatz(n_qubits: int, reps: int, parameter_prefix: str, acos_list
             qc.cx(q, q+1)
             indice = SU2(qc, q, params=params, i=indice + 3, acos_list=acos_list)
             indice = SU2(qc, q+1, params=params, i=indice, acos_list=acos_list)
+        if i == reps//2:
+            if reps % 2 == 0:
+                break
         for q in range(1, n_qubits-1, 2):
             qc.cx(q, q+1)
             qc.rz(params[indice], q)

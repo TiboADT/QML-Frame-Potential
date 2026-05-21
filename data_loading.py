@@ -1,5 +1,6 @@
 
 import numpy as np
+import pandas as pd
 from sklearn.datasets import make_classification, make_moons
 import matplotlib.pyplot as plt
 
@@ -58,3 +59,20 @@ def Build_artitifical_data_set(n_samples: int, n_features: int, n_classes: int,
     
     return X, y
 
+
+def load_csv_data(path: str):
+    """
+    Load data from a csv file.
+    """
+    data = pd.read_csv(path, header=None)
+    return data
+
+def load_cancer_data(path: str):
+    """
+    Load breast cancer wisconsin diagnostic data from a csv file.
+    """
+    data = pd.read_csv(path, header=None)
+    X = data.iloc[:, 2:].values
+    y = data.iloc[:, 1].values
+    y = np.where(y == "M", 1, -1) # convert to {-1, +1}
+    return X, y

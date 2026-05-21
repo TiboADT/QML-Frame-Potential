@@ -31,6 +31,7 @@ class QNN_reuploading(EstimatorQNN):
                  args_embeding= {"name": "real_amp", "circular": True}, 
                  args_anzats= {"name": "two_local_rx", "circular": True},
                  pre_anzats = False,
+                 padding = 0.3,
                  **kwargs):
         
         # compute the necessary number of qubits for the circuit
@@ -73,6 +74,7 @@ class QNN_reuploading(EstimatorQNN):
         self.args_embeding = args_embeding
         self.args_anzats = args_anzats
         self.reps = reps
+        self.padding = padding
 
         super().__init__(
             circuit=circuit,
@@ -84,7 +86,7 @@ class QNN_reuploading(EstimatorQNN):
     def forward(self, input_data, weights):
         """Forward pass with parameters scaled by π for full rotation."""
         scaled_weights = np.array(weights) * np.pi
-        padding = 0.5  # Add padding to ensure we cover the full range of angles
+        padding = self.padding  # Add padding to ensure data points are not too close to the boundaries of the embedding space
         input_data = np.array(input_data) * np.pi * (1 - padding)  # Scale input data as well for better embedding
         return super().forward(input_data, scaled_weights)
 
@@ -158,6 +160,18 @@ class Reuploading_classifier(NeuralNetworkClassifier):
         self.score_train = self.score(X_train, y_train)
         self.score_test = self.score(X_test, y_test)
         self.fiting_time = time.perf_counter() - self.fiting_time
+    
+
+    def score(self, X, y):
+        n_input_params = len(self.neural_network.input_params)
+        n_features = X.shape[1]
+        if n_input_params > n_features:
+            X = np.hstack((X, np.zeros((X.shape[0], n_input_params - n_features))))
+        elif n_input_params < n_features:
+            X = X[:, :n_input_params]
+
+        # compute the score of the model on the given data
+        return super().score(X,y)
     
     def init_save(self):
         # initialize the results folder
