@@ -6,7 +6,7 @@ from numpy import arccos, cos, sin, pi
 
 
 
-def circuit_frame_evaluation(name = None,n_qubits=8,compose_parameters = False):
+def circuit_frame_evaluation(name = None,n_qubits=8,compose_parameters = False,n_samples = None):
     range_reps = [1, 2, 3, 4, 5]
     range_t = [1, 2, 3]
     if n_qubits is None:
@@ -43,5 +43,8 @@ def circuit_frame_evaluation(name = None,n_qubits=8,compose_parameters = False):
                 name = f"perfectSU4_composed"
             else:
                 name = f"perfectSU4"
-            F_p = compute_frame_potential_gpu(circuit, t=t, n_samples=2**(n_qubits)*t, save=True, parameter_composer= parameter_composer, circuit_info={"name": name, "n_qubits": n_qubits, "reps": reps}, verbose=False)
+            
+            if n_samples is None:
+                n_samples = 2**(n_qubits)*t
+            F_p = compute_frame_potential_gpu(circuit, t=t, n_samples=n_samples, save=True, parameter_composer= parameter_composer, circuit_info={"name": name, "n_qubits": n_qubits, "reps": reps}, verbose=False)
             print(f"Test done for {name} with n_qubits={n_qubits}, reps={reps}, t={t}. Frame potential: {F_p['frame_potential']}")
