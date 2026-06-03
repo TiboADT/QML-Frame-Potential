@@ -1,7 +1,7 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.datasets import make_classification, make_moons
+from sklearn.datasets import make_classification, make_moons,make_circles,make_checkerboard,make_blobs
 import matplotlib.pyplot as plt
 
 def Build_artitifical_data_set(n_samples: int, n_features: int, n_classes: int, 
@@ -41,7 +41,20 @@ def Build_artitifical_data_set(n_samples: int, n_features: int, n_classes: int,
                           **kwargs)
         y = np.array(y)
         y = 2*y - 1 # convert to {-1, +1}
-    
+    elif name == "circles":
+        X, y = make_circles(n_samples=n_samples, 
+                          random_state=seed,
+                          **kwargs)
+        y = np.array(y)
+        y = 2*y - 1 # convert to {-1, +1}
+    elif name == "blobs":
+        X, y = make_blobs(n_samples=n_samples, 
+                          random_state=seed,
+                          centers=n_classes,
+                          n_features=n_features,
+                          **kwargs)
+        y = np.array(y)
+        y = 2*y - 1 # convert to {-1, +1}
     else:
         raise ValueError(f"Unknown dataset name: {name}")
     

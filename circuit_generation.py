@@ -88,7 +88,7 @@ def build_ansatz(name: str,
                 qc.cx(q, q + 1)
         return qc
     elif name == "brickwall":
-        return brickwall_anzat(n_qubits, reps, parameter_prefix)
+        return brickwall_anzat(n_qubits, reps, parameter_prefix, **kwargs)
     elif name == "set":
         if "number" in kwargs:
             return circuit_set(n_qubits, kwargs["number"], reps+1, parameter_prefix)
@@ -99,7 +99,7 @@ def build_ansatz(name: str,
 
     else:
         raise ValueError(
-            f"Unknown ansatz '{name}'. Choose from: hea, real_amp, two_local_rx, ghz_like, brickwall"
+            f"Unknown ansatz '{name}'. Choose from: hea, real_amp, two_local_rx, ghz_like, brickwall, set, perfect_SU4."
         )
 
 def SU2(qc, q, params = None, i = 0, acos_list = []):
@@ -154,13 +154,17 @@ def perfectSU4_anzatz(n_qubits: int, reps: int, parameter_prefix: str, acos_list
 
 
 
-def brickwall_anzat(n_qubits: int, reps: int, parameter_prefix: str) -> QuantumCircuit:
+def brickwall_anzat(n_qubits: int, reps: int, parameter_prefix: str, **kwargs) -> QuantumCircuit:
     """
     Return a brickwall ansatz with alternating Rx/Rz + CNOT layers.
     """
     qc = QuantumCircuit(n_qubits)
     params = ParameterVector(parameter_prefix, length=4 * n_qubits * (reps + 1))
     idx = 0
+    if "initial_rotation" in kwargs and kwargs["initial_rotation"]:
+        for q in range(n_qubits):
+            qc.rz(params[idx], q)
+            idx += 1
     for _ in range(reps + 1):
         for q in range((n_qubits//2)*2):
             qc.rx(params[idx], q)

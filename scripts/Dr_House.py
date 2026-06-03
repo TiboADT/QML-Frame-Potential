@@ -16,9 +16,10 @@ from qiskit_machine_learning.optimizers import COBYLA, L_BFGS_B, AQGD, ADAM
 
 
 # read data using pandas
-def dignose_of_circuit():
+def dignosis_of_circuit():
     X, y = load_cancer_data("../data/breast+cancer+wisconsin+diagnostic/wdbc.data")
     n_feature = X.shape[1]
     n_class = len(np.unique(y))
 
     
+

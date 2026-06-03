@@ -47,7 +47,9 @@ if __name__ == "__main__" and False:
 
 
 if __name__ == "__main__":
-    circuit_frame_evaluation(name = "perfectSU4",n_qubits=8,compose_parameters=True,n_samples=10000)
+    circuit_frame_evaluation(name = "set",n_qubits=4,compose_parameters=False,converge=True,range_reps=[4,5,6,7,8,9,10], range_t=[2])
+    # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=False,n_samples=2000)
+    # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=True,n_samples=2000)
 
 
 

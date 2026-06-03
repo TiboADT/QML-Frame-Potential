@@ -15,3 +15,5 @@ pandas
 torch
 
 tqdm
+mplcursors 
+ipympl

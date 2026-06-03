@@ -7,7 +7,7 @@ from qiskit_machine_learning.utils import algorithm_globals
 from qiskit.primitives import StatevectorEstimator as Estimator
 from qiskit_machine_learning.neural_networks import EstimatorQNN
 from qiskit_machine_learning.algorithms import NeuralNetworkClassifier
-from qiskit_machine_learning.optimizers import COBYLA
+from qiskit_machine_learning.optimizers import AQGD, COBYLA, OptimizerSupportLevel
 from datetime import datetime
 import time
 
@@ -100,12 +100,17 @@ class Reuploading_classifier(NeuralNetworkClassifier):
                  optimizer = None, iteration : int = None, 
                  **kwargs):
         # pass optional qnn_args to the QNN_reuploading constructor
+        initial_point = kwargs.pop("initial_point", None)
         self.qnn_args = kwargs.pop("qnn_args", {})
         qnn = QNN_reuploading(n_feature, n_class, **self.qnn_args)
 
         if optimizer is not None:
             if iteration is not None:
                 optimizer.set_options(maxiter=iteration)
+            if initial_point is None:
+                support_level = optimizer.get_support_level()
+                if support_level.get("initial_point") == OptimizerSupportLevel.required:
+                    initial_point = np.zeros(len(qnn.weight_params))
         else:
             # default optimizer is COBYLA with maxiter=60 and rhobeg=0.4
             # it is a fast optimizer, but i wont give as good other optimizers like SPSA or ADAM that take more time to converge
@@ -120,6 +125,7 @@ class Reuploading_classifier(NeuralNetworkClassifier):
         super().__init__(
             qnn,
             optimizer=optimizer,
+            initial_point=initial_point,
             callback=self.callback_method,
             **kwargs,
         )
@@ -129,6 +135,29 @@ class Reuploading_classifier(NeuralNetworkClassifier):
         # but I want to save the objective function values and the weights during training to be able to plot/save them later
         # TODO look up how this should be done in the qiskit documentation, maybe there is a better way to do it
         self.objective_func_vals.append(obj_func_eval)
+
+    def _minimize(self, function):
+        objective = self._get_objective(function)
+
+        initial_point = self._choose_initial_point()
+        if isinstance(self._optimizer, AQGD):
+            def jacobian(weights):
+                return np.asarray(function.gradient(weights)).ravel()
+
+            optimizer_result = self._optimizer.minimize(
+                fun=objective,
+                x0=initial_point,
+                jac=jacobian,
+            )
+        elif callable(self._optimizer):
+            optimizer_result = self._optimizer(fun=objective, x0=initial_point, jac=function.gradient)
+        else:
+            optimizer_result = self._optimizer.minimize(
+                fun=objective,
+                x0=initial_point,
+                jac=function.gradient,
+            )
+        return optimizer_result
     
     
     def fit(self, X, y, verbose: bool = False):
