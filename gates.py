@@ -46,10 +46,11 @@ def apply_cx_gate(U, control_qubit, target_qubit, n_qubits):
     # We want to apply the cx gate to the control and target qubits
     # This means we need to take the tensor product of I with the cx gate at the right place
     # We suppose the control and target qubits are adjacent for simplicity
+    device = U.device
     if control_qubit < target_qubit:
-        full_gate = torch.kron(torch.kron(torch.eye(2**control_qubit, dtype=torch.complex64, device=U.device), cx()), torch.eye(2**(n-control_qubit-2), dtype=torch.complex64, device=U.device))
+        full_gate = torch.kron(torch.kron(torch.eye(2**control_qubit, dtype=torch.complex64, device=U.device), cx(device)), torch.eye(2**(n-control_qubit-2), dtype=torch.complex64, device=U.device))
     else:
-        full_gate = torch.kron(torch.kron(torch.eye(2**target_qubit, dtype=torch.complex64, device=U.device), cx()), torch.eye(2**(n-target_qubit-2), dtype=torch.complex64, device=U.device))
+        full_gate = torch.kron(torch.kron(torch.eye(2**target_qubit, dtype=torch.complex64, device=U.device), cx(device)), torch.eye(2**(n-target_qubit-2), dtype=torch.complex64, device=U.device))
     return torch.matmul(full_gate, U)
 
 def rx(theta):
@@ -119,7 +120,7 @@ def ry(theta):
 
     return mat
 
-def cx():
+def cx(device):
     """
     returns: (4,4)
     """
@@ -127,6 +128,7 @@ def cx():
         4,
         4,
         dtype=torch.complex64,
+        device=device
     )
 
     mat[0, 0] = 1

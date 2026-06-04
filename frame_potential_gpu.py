@@ -56,7 +56,7 @@ from gates import apply_cx_gate, get_gate_matrix, apply_1q_gate
 
 # ── Device setup ──────────────────────────────────────────────────────────────
 
-def get_device(verbose: bool = True) -> torch.device:
+def get_device(verbose: bool = False) -> torch.device:
     """
     Return the best available device, checked in this order:
         1. CUDA  (NVIDIA GPU)
@@ -91,7 +91,7 @@ def get_device(verbose: bool = True) -> torch.device:
 def recommended_batch_size( d: int, vram_gb: float, dtype: torch.dtype, n: int = None) -> int:
     """
     Compute the largest batch size B such that one (B, B, d, d) complex
-    tensor fits in `vram_gb` gigabytes (using 50% as a safety margin).
+    tensor fits in `vram_gb` gigabytes (using 70% as a safety margin).
 
     The bottleneck tensor is the broadcasted product
         Ai.conj() * Bj  →  shape (B, B, d, d)
@@ -109,7 +109,7 @@ def recommended_batch_size( d: int, vram_gb: float, dtype: torch.dtype, n: int =
     B : int
     """
     bytes_per_element = 8 if dtype == torch.complex64 else 16
-    usable_bytes = vram_gb * 1024**3 * 0.5         # 50% safety margin
+    usable_bytes = vram_gb * 1024**3 * 0.7         # 50% safety margin
     B = int(math.sqrt(usable_bytes / (d * d * bytes_per_element)))
     if n is not None:
         return max(1, min(B, n))                   # clamp to [1, N]
@@ -185,7 +185,6 @@ def sample_parameters(batch_size, n_params, device):
 
 def sample_unitaries_gpu(circuit: QuantumCircuit, 
                          batch_size: int, 
-                         n_params: int, 
                          device,
                          parameter_composer=None,
                          verbose=False) -> torch.Tensor:
@@ -196,13 +195,14 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
     Extract the operations from the circuit and apply them in a batched manner.
 
     """
-    operations = []
+    instructions = []
+    n_params = circuit.num_parameters
 
     for instruction in circuit:
-        operations.append(instruction.operation)
-    
+        instructions.append(instruction)
+
     parameters = sample_parameters(batch_size, n_params, device)
-    op = torch.eye(
+    unitaries = torch.eye(
         2**circuit.num_qubits,
         dtype=torch.complex64,
         device=device
@@ -210,22 +210,26 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
 
     #DO TO support composition of the parameters,
     # we would need to apply the parameter_composer function to the parameters before applying the operations.
+
+
     i = 0
-    for operation in operations:
-        if verbose:
-            print(f"Applying operation {operation.name} to batch of unitaries on GPU ...")
+    for instruction in instructions:
+        operation = instruction.operation
         if operation.name == "cx":
-            apply_cx_gate(op, control_qubit=operation.qubits[0].index, target_qubit=operation.qubits[1].index, n_qubits=circuit.num_qubits)
+            # kind horrible but i cant find a way to extract the control and target qubits without going through the instruction object, which is not very user-friendly.
+            control_qubit = circuit.find_bit(instruction.qubits[0]).index
+            target_qubit = circuit.find_bit(instruction.qubits[1]).index
+            unitaries = apply_cx_gate(unitaries, control_qubit=control_qubit, target_qubit=target_qubit, n_qubits=circuit.num_qubits)
         else:
             gate_parameters = parameters[:,i]
             i+=1
             gate_name = operation.name
             gate_matrix = get_gate_matrix(gate_name, gate_parameters)
+            qubit_index = circuit.find_bit(instruction.qubits[0]).index
             # We need to apply the gate to the correct qubits. This involves reshaping and permuting the gate matrix to fit into the full Hilbert space of the circuit.
-            apply_1q_gate(op, gate_matrix, qubit_index=operation.qubits[0].index, n_qubits=circuit.num_qubits)
+            unitaries = apply_1q_gate(unitaries, gate_matrix, qubit_index=qubit_index, n_qubits=circuit.num_qubits)
 
-
-    raise NotImplementedError("GPU sampling not implemented yet. Sampling is done on CPU.")
+    return unitaries
 
 
 
@@ -258,7 +262,6 @@ def frame_potential_gpu(
     unitariesA: torch.Tensor,
     unitariesB: torch.Tensor,
     t: int,
-    batch_size: Optional[int] = None,
     device: Optional[torch.device] = None,
 ) -> float:
     """
@@ -271,8 +274,6 @@ def frame_potential_gpu(
     unitariesA : torch.Tensor of shape (N, d, d), complex, already on GPU
     unitariesB : torch.Tensor of shape (N, d, d), complex, already on GPU
     t          : design order
-    batch_size : number of unitaries per block. If None, tries to do all N
-                 at once (only safe if N is small or VRAM is large).
     device     : torch.device (inferred from unitaries if None)
 
     Returns
@@ -287,66 +288,37 @@ def frame_potential_gpu(
     # Prefer float64 accumulation for numerical stability.
     # Some XPU and older CUDA devices do not expose fp64 — fall back to float32.
     accum_dtype = torch.float64
+
     try:
         _ = torch.zeros(1, dtype=torch.float64, device=device)
     except RuntimeError:
         accum_dtype = torch.float32
-        warnings.warn(
-            "Device does not support fp64; accumulating in float32.",
-            RuntimeWarning,
-        )
 
     total = torch.tensor(0.0, dtype=accum_dtype, device=device)
-    sum_sq = torch.tensor(0.0, dtype=accum_dtype, device=device)  # Σ |tr|^{4t}, for variance
+    sum_sq = torch.tensor(0.0, dtype=accum_dtype, device=device)  
+    
+    # Σ |tr|^{4t}, for variance
 
-    # If no batch_size given, try the full N×N at once.
-    # This is optimal when it fits — zero loop overhead.
-    if batch_size is None:
-        batch_size = N
 
-    for i in range(0, N, batch_size):
-        # shape: (B, d, d)  →  (B, 1, d, d)
-        Ai = unitariesA[i : i + batch_size].unsqueeze(1)
-
-        for j in range(0, N, batch_size):
-            # shape: (B', d, d)  →  (1, B', d, d)
-            Bj = unitariesB[j : j + batch_size].unsqueeze(0)
-
-            # ── Core computation ───────────────────────────────────────────
-            #
-            # We want Tr(Uᵢ† Uⱼ) for every pair (i, j).
-            #
-            # Key identity (same as the CPU version):
-            #     Tr(A†B) = Σ_{p,q} conj(A_{pq}) · B_{pq}
-            #
-            # einsum "bipq, bjpq -> bij":
-            #   b = batch index of Ai  (kept)
-            #   i = batch index of Bj  (kept, note: variable named 'i' in the string
-            #       but refers to j-loop index here — the einsum string just labels axes)
-            #   p = row of the d×d matrix  (contracted / summed over)
-            #   q = col of the d×d matrix  (contracted / summed over)
-            #
-            # Broadcasting:
-            #   Ai: (B, 1, d, d)  ←  broadcasts over j dimension
-            #   Bj: (1, B', d, d) ←  broadcasts over i dimension
-            #   result: (B, B') — one complex trace per pair
-            #
-            traces = torch.einsum("bipq,bjpq->bij", Ai.conj(), Bj)
-
-            # |Tr(Uᵢ†Uⱼ)|^{2t} then sum over all pairs in this block
-            # .abs() returns real, ** (2*t) raises to power, .sum() accumulates
-            block_sum = torch.sum(torch.abs(traces) ** (2 * t)).to(accum_dtype)
-            total   += block_sum
-            sum_sq  += torch.sum(torch.abs(traces) ** (4 * t)).to(accum_dtype)
+    A = unitariesA[:].unsqueeze(1)
+    B = unitariesB[:].unsqueeze(0)
+    traces = torch.einsum("bipq,bjpq->bij", A.conj(), B)
+    # |Tr(Uᵢ†Uⱼ)|^{2t} then sum over all pairs in this block
+    # .abs() returns real, ** (2*t) raises to power, .sum() accumulates
+    block_sum = torch.sum(torch.abs(traces) ** (2 * t)).to(accum_dtype)
+    total   = block_sum
+    sum_sq  = torch.sum(torch.abs(traces) ** (4 * t)).to(accum_dtype)
 
     # F^(t) = mean of |Tr(Ui†Uj)|^{2t}
-    F = (total / (N * N)).item()
     # Variance of the estimator: Var[X] = E[X²] - E[X]²
-    V = (sum_sq  / (N * N) - F ** 2).item() # sample variance
     # Ficelity interval (assuming normal distribution of the estimator, which is reasonable for large N) at 95% confidence:
     # mean ± 1.96 * std_error
     # std_error = sqrt(Var[X] / N_samples)
-    fidelity_error = 1.96 * math.sqrt(max(V, 0.0) / (N * N))  # standard error of the mean
+
+    F = (total / (N * N)).item()
+    V = (sum_sq  / (N * N) - F ** 2).item()
+    fidelity_error = 1.96 * math.sqrt(max(V, 0.0) / (N * N))
+
     return {
         "frame_potential": F,
         "variance": V,
@@ -371,10 +343,10 @@ def haar_frame_potential(t: int, d: int) -> float:
 def compute_frame_potential_gpu(
     circuit: QuantumCircuit,
     t: int = 1,
-    n_samples: int = 500,
+    n_samples: int = None,
     converge_before_return: bool = False,  # not implemented yet
     dtype: torch.dtype = torch.complex64,
-    batch_size: Optional[int] = None,
+    device: Optional[torch.device] = None,
     seed: Optional[int] = None,
     verbose: bool = True,
     save: bool = False,
@@ -396,7 +368,6 @@ def compute_frame_potential_gpu(
     t          : design order
     n_samples  : number of Monte Carlo samples N
     dtype      : torch.complex64 (fast) or torch.complex128 (exact)
-    batch_size : GPU block size. None = auto (tries full N×N).
     seed       : random seed for reproducibility
     verbose    : print progress and results
     force_save : whether to force saving of results
@@ -405,7 +376,31 @@ def compute_frame_potential_gpu(
     dict with keys: frame_potential, haar_value, delta, ratio,
                     n_qubits, d, t, n_samples, device, dtype
     """
-    # 
+
+    # 1. Device and variables setup
+    if device is None:
+        device = get_device(verbose=verbose)
+    
+
+    # Auto batch size from VRAM if on a GPU device and no batch_size given
+    vram_gb    = _get_vram_gb(device)
+
+    d = 2 ** circuit.num_qubits
+
+    if n_samples is None and device.type in ("cuda", "xpu"):
+        n_samples = recommended_batch_size( d, vram_gb, dtype, n_samples)
+        if verbose:
+            print(f"Auto batch size : {n_samples}  (VRAM={vram_gb:.1f}GB, d={d})")
+    n_samples = n_samples or 2939  # default if not provided
+
+    if seed is None:
+        seed = np.random.SeedSequence().entropy % 2**32  # random seed for reproducibility, limited to 32 bits for PyTorch
+    # Set the seed for reproducibility
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
+    # functions for verbose printing and saving results, to avoid cluttering the main logic with these details
     def verbose_print(*args, **kwargs):
         print(f"\n{'─'*50}")
         print(f"  F^({t}) (ansatz)  : {F:.6f}")
@@ -428,10 +423,10 @@ def compute_frame_potential_gpu(
         save_results(path="./data/results/frame_potential", 
                      model_info=circuit_info, result_info=result, verbose=verbose, force_save=force_save)
 
-        
+    
 
     
-    # ── 0. recursion version for convergance case ─────────────────────────────────────────────
+    # ── 1.1. recursion version for convergance case ─────────────────────────────────────────────
     if converge_before_return:
         if verbose: 
             print("Convergence mode: will keep sampling until the fidelity error is below the threshold.")
@@ -439,19 +434,14 @@ def compute_frame_potential_gpu(
         cumulative_sum_sq = 0.0
         cumulative_pairs = 0
         
-        
-        device = get_device(verbose=verbose)
-        vram_gb    = _get_vram_gb(device)
-        d = 2 ** circuit.num_qubits
         max_batch_size = recommended_batch_size( d, vram_gb, dtype, None)
 
         F_p = compute_frame_potential_gpu(circuit, t=t, 
                                           n_samples=n_samples, 
-                                          dtype=dtype, 
-                                          batch_size=batch_size, 
+                                          dtype=dtype,  
                                           seed=seed, verbose=verbose, 
-                                          save=False, 
-                                          circuit_info=circuit_info, 
+                                          save=False,
+                                          device=device, 
                                           parameter_composer=parameter_composer, )
         error = F_p["fidelity_error"]
         delta = F_p["delta"]
@@ -470,13 +460,13 @@ def compute_frame_potential_gpu(
         while error > np.abs(threshold*delta) and error > 1e-5:
             n_samples *= 2
             if n_samples > max_batch_size:
-                n_samples = max_batch_size-1
+                n_samples = max_batch_size
 
             F_p = compute_frame_potential_gpu(circuit, t=t, 
                                               n_samples=n_samples, 
                                               dtype=dtype, 
-                                              batch_size=batch_size, 
-                                              seed=seed+i, verbose=verbose, 
+                                              device=device,
+                                              seed=seed+i*773, verbose=verbose, 
                                               save=False, 
                                               circuit_info=circuit_info, 
                                               parameter_composer=parameter_composer, )
@@ -504,49 +494,40 @@ def compute_frame_potential_gpu(
         
 
 
-    # ── 1. Device ────────────────────────────────────────────────────────────
-    device = get_device(verbose=verbose)
+    # ── 2. Sampling ────────────────────────────────────────────────────────────
 
-    d = 2 ** circuit.num_qubits
+    print(f"Sampling unitaries and computing frame potential on device: {device} ...")
+    if device.type == "cuda":
+        # ── 2.1. Sample directly on GPU ────────────────────────────────────────────
+        Us_gpu_A = sample_unitaries_gpu(circuit, n_samples//2, device=device, verbose=verbose, parameter_composer=parameter_composer)
+        Us_gpu_B = sample_unitaries_gpu(circuit, n_samples//2, device=device, verbose=verbose, parameter_composer=parameter_composer)
+    else:
+        warnings.warn("Intel XPU or CPU detected: performance may be poor due to immature PyTorch/XPU support. Consider using CUDA if available.")
+        # ── 2.2. Sample on CPU ─────────────────────────────────────────────────────
+        rng = np.random.default_rng(seed)
+        Us_cpu_A = sample_unitaries_cpu(circuit, n_samples//2, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
+        Us_cpu_B = sample_unitaries_cpu(circuit, n_samples//2, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
 
-    # Auto batch size from VRAM if on a GPU device and no batch_size given
-    if batch_size is None and device.type in ("cuda", "xpu"):
-        vram_gb    = _get_vram_gb(device)
-        batch_size = recommended_batch_size( d, vram_gb, dtype, n_samples)
-        if verbose:
-            print(f"Auto batch size : {batch_size}  (VRAM={vram_gb:.1f}GB, d={d})")
+        # ── 3.2.1 Transfer to GPU (once) ────────────────────────────────────────────
+        Us_gpu_A = to_gpu(Us_cpu_A, device, dtype=dtype)
+        Us_gpu_B = to_gpu(Us_cpu_B, device, dtype=dtype)
 
-    if verbose:
-        print(f"\nn_qubits={circuit.num_qubits}  d={d}  N={n_samples}  t={t}")
-        print(f"dtype={dtype}  batch_size={batch_size or n_samples}")
-        print("─" * 50)
-
-    # ── 2. Sample on CPU ─────────────────────────────────────────────────────
-    rng = np.random.default_rng(seed)
-    Us_cpu_A = sample_unitaries_cpu(circuit, n_samples, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
-    Us_cpu_B = sample_unitaries_cpu(circuit, n_samples, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
-
-    # ── 3. Transfer to GPU (once) ────────────────────────────────────────────
-    if verbose:
-        nbytes = Us_cpu_A.nbytes / 1024**2
-        print(f"Transferring {nbytes:.1f} MB to {device} ...")
-    Us_gpu_A = to_gpu(Us_cpu_A, device, dtype=dtype)
-    Us_gpu_B = to_gpu(Us_cpu_B, device, dtype=dtype)
-
-    # ── 4. Compute on GPU ────────────────────────────────────────────────────
+    # ── 3. Compute on GPU ────────────────────────────────────────────────────
     if verbose:
         print("Computing frame potential on GPU ...")
 
-    result = frame_potential_gpu(Us_gpu_A, Us_gpu_B, t=t, batch_size=batch_size, device=device)
+    result = frame_potential_gpu(Us_gpu_A, Us_gpu_B, t=t, device=device)
     F = result["frame_potential"]
 
-    # ── 5. Compare to Haar ───────────────────────────────────────────────────
+    # ── 4. Compare to Haar ───────────────────────────────────────────────────
     F_haar = haar_frame_potential(t, d)
     delta  = F - F_haar
     ratio  = F / F_haar
 
     if verbose:
         verbose_print()
+
+    # ── 5. Return results ───────────────────────────────────────────────────
 
     result = {
         "frame_potential" : F,

@@ -1,13 +1,59 @@
 from qiskit_machine_learning.optimizers import L_BFGS_B
+from qiskit.circuit.library import efficient_su2
 
 from scripts.rolling_in_the_depth import *
 from scripts.who_let_the_circuit_out import *
 from data_loading import Build_artitifical_data_set
 from scripts.circuit_frame import *
+import torch
+
+from gates import get_gate_matrix
+from frame_potential_gpu import get_device, sample_unitaries_gpu, recommended_batch_size, _get_vram_gb, sample_unitaries_cpu, to_gpu
+
+import time
 
 import argparse
 
+if __name__ == "__main__" and False:
 
+    N_QUBITS = 4
+    circuit = efficient_su2(N_QUBITS, reps=6, entanglement='linear')
+
+
+    F_p = compute_frame_potential_gpu(circuit, t=2, converge_before_return=True, verbose=True)
+    print(f"Frame potential: {F_p}")
+
+
+if __name__ == "__main__" and False:
+
+    N_QUBITS = 2
+    circuit = efficient_su2(N_QUBITS, reps=2, entanglement='linear')
+    device = get_device(False)
+    v_ram_gb = _get_vram_gb(device)
+    print(f"Recommended batch size for GPU sampling: {recommended_batch_size(N_QUBITS, vram_gb=v_ram_gb,dtype=torch.complex64)}")
+
+    
+    t0 = time.perf_counter()
+    unitaries = sample_unitaries_gpu(circuit, 1, device=device, verbose = False)
+    t1 = time.perf_counter()
+    print(f"Time taken to sample 1000 unitaries on GPU: {t1-t0:.2f} seconds")
+    shape = unitaries.shape
+    print(f"Shape of sampled unitaries: {shape}")
+
+
+    t0 = time.perf_counter()    
+    unitaries_cpu = sample_unitaries_cpu(circuit, 1, verbose = False)
+    unitaries_cpu = to_gpu(unitaries_cpu, device=device) # just to make sure the unitaries are on the same device for comparison
+    t1 = time.perf_counter()
+    print(f"Time taken to sample 1000 unitaries on CPU: {t1-t0:.2f} seconds")
+    shape = unitaries_cpu.shape
+    print(f"Shape of sampled unitaries: {shape}")
+
+    # Compare the unitaries sampled on GPU and CPU
+    difference = torch.norm(unitaries - unitaries_cpu)
+    print(unitaries)
+    print(unitaries_cpu)
+    print(f"Difference between GPU and CPU sampled unitaries: {difference:.2e}")
 
 if __name__ == "__main__" and False:
     # No arguments for now, but we can add some later to choose the architecture, the dataset, the target accuracy, etc.
@@ -46,7 +92,7 @@ if __name__ == "__main__" and False:
 
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and False:
     circuit_frame_evaluation(name = "set",n_qubits=4,compose_parameters=False,converge=True,range_reps=[4,5,6,7,8,9,10], range_t=[2])
     # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=False,n_samples=2000)
     # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=True,n_samples=2000)
