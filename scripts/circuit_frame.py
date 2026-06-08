@@ -43,7 +43,8 @@ def circuit_frame_evaluation(name = None,n_qubits=8,
                                               verbose=False, 
                                               force_save=force_save,
                                               save=True )
-            print(f"Test done for circuit {number} with n_qubits={n_qubits}, reps={reps}, t={t}. Frame potential: {F_p['frame_potential']}")
+            space = " " if number < 10 else ""
+            print(f"Test done for circuit {number}{space} with n_qubits={n_qubits}, reps={reps}, t={t}. Frame potential: {F_p['frame_potential']:.6f}")
     
     if name == "perfectSU4":
 
@@ -69,4 +70,4 @@ def circuit_frame_evaluation(name = None,n_qubits=8,
                                               circuit_info={"name": name, "n_qubits": n_qubits, "reps": reps}, 
                                               verbose=False,
                                               force_save=force_save)
-            print(f"Test done for {name} with n_qubits={n_qubits}, reps={reps}, t={t}. Frame potential: {F_p['frame_potential']}")
+            print(f"Test done for {name} with n_qubits={n_qubits}, reps={reps}, t={t}. Frame potential: {F_p['frame_potential']:.6f}")

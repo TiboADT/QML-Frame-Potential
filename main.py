@@ -1,5 +1,6 @@
 from qiskit_machine_learning.optimizers import L_BFGS_B
 from qiskit.circuit.library import efficient_su2
+from qiskit import QuantumCircuit
 
 from scripts.rolling_in_the_depth import *
 from scripts.who_let_the_circuit_out import *
@@ -16,12 +17,17 @@ import argparse
 
 if __name__ == "__main__" and False:
 
-    N_QUBITS = 4
-    circuit = efficient_su2(N_QUBITS, reps=6, entanglement='linear')
+    circuit = build_ansatz(name="set", n_qubits=4, reps=1, number=3)
 
+    print(circuit.draw())
+    print(circuit.num_parameters)
 
     F_p = compute_frame_potential_gpu(circuit, t=2, converge_before_return=True, verbose=True)
-    print(f"Frame potential: {F_p}")
+    print(f"Frame potential: {F_p['frame_potential']:.6f}")
+
+    F_p = compute_frame_potential_gpu(circuit, t=2, converge_before_return=True, verbose=True, device = torch.device("cpu"))
+    print(f"Frame potential: {F_p['frame_potential']:.6f}")
+
 
 
 if __name__ == "__main__" and False:
@@ -92,9 +98,14 @@ if __name__ == "__main__" and False:
 
 
 
-if __name__ == "__main__" and False:
-    circuit_frame_evaluation(name = "set",n_qubits=4,compose_parameters=False,converge=True,range_reps=[4,5,6,7,8,9,10], range_t=[2])
-    # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=False,n_samples=2000)
+if __name__ == "__main__":
+    # We can run the circuit frame evaluation for different ansatzes and different numbers of qubits, 
+    # to see how the frame potential evolves with the depth of the circuit, 
+    # and how it compares to the Haar value. 
+
+    circuit_frame_evaluation(name = "set",n_qubits=4,converge=True,compose_parameters=False, range_t=[2])
+    circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,converge=True,compose_parameters=False, range_t=[2])
+
     # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=True,n_samples=2000)
 
 

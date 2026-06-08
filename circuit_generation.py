@@ -298,37 +298,45 @@ def circuit_set(n_qubits: int, number : int, reps : int = 1,  parameter_prefix: 
     elif number == 5:
         param_per_rep = (4 * n_qubits + (n_qubits-1)*n_qubits)
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
+        p = 0
         for i in range(reps):
             for q in range(n_qubits):
-                circuit.rx(params[i*param_per_rep + 2*q], q)
-                circuit.rz(params[i*param_per_rep + 2*q + 1], q)
+                circuit.rx(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
             # all to all parametrized CZ
             for q in range(n_qubits):
                 for q2 in range(n_qubits):
                     if q2 != q:
                         # Parametrized CZ
-                        circuit.cp(params[i*param_per_rep + n_qubits*2 + q*n_qubits + q2],q, q2)
+                        circuit.cp(params[p],q, q2)
+                        p += 1
             for q in range(n_qubits):
-                circuit.rx(params[(i+1)*param_per_rep - 2* n_qubits + 2*q], q)
-                circuit.rz(params[(i+1)*param_per_rep - 2* n_qubits + 2*q + 1], q)
+                circuit.rx(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
     elif number == 6:
         param_per_rep = (4 * n_qubits + (n_qubits-1)*n_qubits)
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
+        p = 0
         for i in range(reps):
             for q in range(n_qubits):
-                circuit.rx(params[i*param_per_rep + 2*q], q)
-                circuit.rz(params[i*param_per_rep + 2*q + 1], q)
+                circuit.rx(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
             # all to all parametrized CX
             for q in range(n_qubits):
                 for q2 in range(n_qubits):
                     if q2 != q:
                         # Parametrized CX
                         circuit.h(q)
-                        circuit.cp(params[i*param_per_rep + n_qubits*2 + q*n_qubits + q2],q, q2)
+                        circuit.cp(params[p],q, q2)
                         circuit.h(q)
+                        p += 1
             for q in range(n_qubits):
-                circuit.rx(params[(i+1)*param_per_rep - 2* n_qubits + 2*q], q)
-                circuit.rz(params[(i+1)*param_per_rep - 2* n_qubits + 2*q + 1], q)
+                circuit.rx(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
     elif number == 7:
         param_per_rep = (4 * n_qubits + n_qubits//2 + (n_qubits-1)//2)
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
@@ -338,13 +346,13 @@ def circuit_set(n_qubits: int, number : int, reps : int = 1,  parameter_prefix: 
                 circuit.rz(params[i*param_per_rep + 2*q + 1], q)
             for q in range(0,n_qubits-1,2):
                 # Parametrized CZ
-                circuit.cp(params[i*param_per_rep + n_qubits*2 + q],q, q+1)
+                circuit.cp(params[i*param_per_rep + n_qubits*2 + (q)//2],q, q+1)
             for q in range(n_qubits):
-                circuit.rx(params[param_per_rep + n_qubits * 2 + n_qubits//2 + 2*q], q)
-                circuit.rz(params[param_per_rep + n_qubits * 2 + n_qubits//2+ 2*q + 1], q)
+                circuit.rx(params[i*param_per_rep + n_qubits * 2 + n_qubits//2 + 2*q], q)
+                circuit.rz(params[i*param_per_rep + n_qubits * 2 + n_qubits//2+ 2*q + 1], q)
             for q in range(1,n_qubits-1,2):
                 # Parametrized CZ
-                circuit.cp(params[i*param_per_rep + n_qubits * 4 + n_qubits//2+ n_qubits*2 + q],q, q+1)
+                circuit.cp(params[i*param_per_rep + n_qubits * 2 + n_qubits//2+ n_qubits*2 + (q)//2],q, q+1)
     elif number == 8:
         param_per_rep = (4 * n_qubits + n_qubits//2 + (n_qubits-1)//2)
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
@@ -352,18 +360,18 @@ def circuit_set(n_qubits: int, number : int, reps : int = 1,  parameter_prefix: 
             for q in range(n_qubits):
                 circuit.rx(params[i*param_per_rep + 2*q], q)
                 circuit.rz(params[i*param_per_rep + 2*q + 1], q)
-            for q in range(0,n_qubits,2):
+            for q in range(0,n_qubits-1,2):
                 # Parametrized CZ
                 circuit.h(q)
-                circuit.cp(params[i*param_per_rep + n_qubits*2 + q],q, q+1)
+                circuit.cp(params[i*param_per_rep + n_qubits*2 + (q)//2],q, q+1)
                 circuit.h(q)
             for q in range(n_qubits):
-                circuit.rx(params[param_per_rep + n_qubits * 2 + n_qubits//2 + 2*q], q)
-                circuit.rz(params[param_per_rep + n_qubits * 2 + n_qubits//2+ 2*q + 1], q)
+                circuit.rx(params[i*param_per_rep + n_qubits * 2 + n_qubits//2 + 2*q], q)
+                circuit.rz(params[i*param_per_rep + n_qubits * 2 + n_qubits//2+ 2*q + 1], q)
             for q in range(1,n_qubits-1,2):
-                # Parametrized CX
+                # Parametrized CZ
                 circuit.h(q)
-                circuit.cp(params[i*param_per_rep + n_qubits * 4 + n_qubits//2+ n_qubits*2 + q],q, q+1)
+                circuit.cp(params[i*param_per_rep + n_qubits * 2 + n_qubits//2+ n_qubits*2 + (q)//2],q, q+1)
                 circuit.h(q)
     elif number == 9:
         param_per_rep = 4*n_qubits
@@ -387,33 +395,37 @@ def circuit_set(n_qubits: int, number : int, reps : int = 1,  parameter_prefix: 
     elif number == 11:
         param_per_rep = 4*n_qubits - 4
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
+        p = 0
         for i in range(reps):
             for q in range(n_qubits):
-                circuit.ry(params[i*param_per_rep + 2*q], q)
-                circuit.rz(params[i*param_per_rep + 2*q + 1], q)
+                circuit.ry(params[p], q)
+                circuit.rz(params[p+1], q)
+                p += 2
             for q in range(0,n_qubits-1,2):
                 circuit.cx(q, q+1)
             for q in range(1,n_qubits-1):
-                circuit.ry(params[i*param_per_rep +2*n_qubits + 2*q], q)
-                circuit.rz(params[i*param_per_rep +2*n_qubits + 2*q + 1], q)
+                circuit.ry(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
             for q in range(1,n_qubits-1,2):
-                # Parametrized CZ
                 circuit.cx(q, q+1)
     elif number == 12:
 
         param_per_rep = 4*n_qubits - 4
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
+        p = 0
         for i in range(reps):
             for q in range(n_qubits):
-                circuit.ry(params[i*param_per_rep + 2*q], q)
-                circuit.rz(params[i*param_per_rep + 2*q + 1], q)
+                circuit.ry(params[p], q)
+                circuit.rz(params[p+1], q)
+                p += 2
             for q in range(0,n_qubits-1,2):
                 circuit.cz(q, q+1)
             for q in range(1,n_qubits-1):
-                circuit.ry(params[i*param_per_rep +2*n_qubits + 2*q], q)
-                circuit.rz(params[i*param_per_rep +2*n_qubits + 2*q + 1], q)
+                circuit.ry(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
             for q in range(1,n_qubits-1,2):
-                # Parametrized CZ
                 circuit.cz(q, q+1)
     elif number == 13:
         param_per_rep = 4*n_qubits
@@ -488,23 +500,29 @@ def circuit_set(n_qubits: int, number : int, reps : int = 1,  parameter_prefix: 
     elif number == 18:
         param_per_rep = (2 * n_qubits + n_qubits-1)
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
+        p = 0
         for i in range(reps):
             for q in range(n_qubits):
-                circuit.rx(params[i*param_per_rep + 2*q], q)
-                circuit.rz(params[i*param_per_rep + 2*q + 1], q)
+                circuit.rx(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
             for q in range(n_qubits):
                 # Parametrized CZ
-                circuit.cp(params[i*param_per_rep + n_qubits*2 + q],q, (q+1)%n_qubits)
+                circuit.cp(params[p],q, (q+1)%n_qubits)
+                p += 1
     elif number == 19:
         param_per_rep = (2 * n_qubits + n_qubits-1)
         params = ParameterVector(parameter_prefix, length=param_per_rep * (reps + 1))
+        p = 0
         for i in range(reps):
             for q in range(n_qubits):
-                circuit.rx(params[i*param_per_rep + 2*q], q)
-                circuit.rz(params[i*param_per_rep + 2*q + 1], q)
+                circuit.rx(params[p], q)
+                circuit.rz(params[p + 1], q)
+                p += 2
             for q in range(n_qubits):
                 # Parametrized CX
                 circuit.h(q)
-                circuit.cp(params[i*param_per_rep + n_qubits*2 + q],q, (q+1)%n_qubits)
+                circuit.cp(params[p],q, (q+1)%n_qubits)
                 circuit.h(q)
+                p+= 1
     return circuit

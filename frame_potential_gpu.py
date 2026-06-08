@@ -51,7 +51,7 @@ from qiskit.quantum_info import Operator
 from qiskit.circuit import ParameterVector
 
 from save_read_results import save_results
-from gates import apply_cx_gate, get_gate_matrix, apply_1q_gate
+from gates import apply_Control_gate, get_gate_matrix, apply_1q_gate
 
 
 # ── Device setup ──────────────────────────────────────────────────────────────
@@ -201,7 +201,8 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
     for instruction in circuit:
         instructions.append(instruction)
 
-    parameters = sample_parameters(batch_size, n_params, device)
+    parameters = sample_parameters(batch_size, n_params+1, device)
+
     unitaries = torch.eye(
         2**circuit.num_qubits,
         dtype=torch.complex64,
@@ -215,20 +216,22 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
     i = 0
     for instruction in instructions:
         operation = instruction.operation
-        if operation.name == "cx":
+
+        gate_parameters = parameters[:,i]
+        gate_name = operation.name
+
+        gate_matrix,i = get_gate_matrix(operation, gate_parameters,i)
+        if gate_name == "cx" or gate_name == "cp" or gate_name == "cz":
             # kind horrible but i cant find a way to extract the control and target qubits without going through the instruction object, which is not very user-friendly.
             control_qubit = circuit.find_bit(instruction.qubits[0]).index
             target_qubit = circuit.find_bit(instruction.qubits[1]).index
-            unitaries = apply_cx_gate(unitaries, control_qubit=control_qubit, target_qubit=target_qubit, n_qubits=circuit.num_qubits)
+            unitaries = apply_Control_gate(unitaries, control_qubit=control_qubit, 
+                                           target_qubit=target_qubit, n_qubits=circuit.num_qubits, 
+                                            gate_matrix = gate_matrix)
         else:
-            gate_parameters = parameters[:,i]
-            i+=1
-            gate_name = operation.name
-            gate_matrix = get_gate_matrix(gate_name, gate_parameters)
             qubit_index = circuit.find_bit(instruction.qubits[0]).index
             # We need to apply the gate to the correct qubits. This involves reshaping and permuting the gate matrix to fit into the full Hilbert space of the circuit.
             unitaries = apply_1q_gate(unitaries, gate_matrix, qubit_index=qubit_index, n_qubits=circuit.num_qubits)
-
     return unitaries
 
 
@@ -439,7 +442,7 @@ def compute_frame_potential_gpu(
         F_p = compute_frame_potential_gpu(circuit, t=t, 
                                           n_samples=n_samples, 
                                           dtype=dtype,  
-                                          seed=seed, verbose=verbose, 
+                                          seed=seed, verbose=False, 
                                           save=False,
                                           device=device, 
                                           parameter_composer=parameter_composer, )
@@ -456,8 +459,24 @@ def compute_frame_potential_gpu(
 
         if verbose:
             print(f"Convergence check: error={error:.6f}, threshold={np.abs(threshold*delta):.6f}, samples={cumulative_pairs}")
+            convergence_target = np.abs(threshold * delta)
+            progress_value = 0.0 if convergence_target == 0 else max(0.0, min(1.0, 1.0 - error / convergence_target))
+            convergence_bar = tqdm(
+                total=1.0,
+                initial=progress_value,
+                desc="Convergence",
+                leave=False,
+                disable=not verbose,
+            )
+            convergence_bar.set_postfix(
+                error=f"{error:.3e}",
+                target=f"{convergence_target:.3e}",
+                samples=cumulative_pairs,
+            )
         i=0
-        while error > np.abs(threshold*delta) and error > 1e-5:
+        while error > np.abs(threshold*delta) and error > 1e-5 and i < 50: # added a max iteration to avoid infinite loop in case of non convergence, can be adjusted or removed
+            # desplay a progression bar of the convergence using tqdm
+
             n_samples *= 2
             if n_samples > max_batch_size:
                 n_samples = max_batch_size
@@ -466,7 +485,7 @@ def compute_frame_potential_gpu(
                                               n_samples=n_samples, 
                                               dtype=dtype, 
                                               device=device,
-                                              seed=seed+i*773, verbose=verbose, 
+                                              seed=seed+i*773, verbose=False, 
                                               save=False, 
                                               circuit_info=circuit_info, 
                                               parameter_composer=parameter_composer, )
@@ -480,29 +499,55 @@ def compute_frame_potential_gpu(
 
             delta = F - F_p["haar_value"]
             if verbose:
-                print(f"Convergence check: error={error:.6f}, threshold={np.abs(threshold*delta):.6f}, samples={cumulative_pairs}")
+                convergence_target = np.abs(threshold * delta)
+                progress_value = 0.0 if convergence_target == 0 else max(0.0, min(1.0, np.log(error) / np.log(convergence_target)))
+                convergence_bar.n = progress_value
+                convergence_bar.set_postfix(
+                    error=f"{error:.3e}",
+                    target=f"{convergence_target:.3e}",
+                    samples=cumulative_pairs,
+                )
+                convergence_bar.refresh()
         
-        F_p["frame_potential"] = F
-        F_p["variance"] = V
-        F_p["fidelity_error"] = error
-        F_p["delta"] = delta
-        F_p["n_samples"] = np.sqrt(cumulative_pairs)
 
+        F_haar = haar_frame_potential(t, d)
+        ratio  = F / F_haar
+
+        result = {
+            "frame_potential" : F,
+            "variance"        : V,
+            "fidelity_error"  : error,
+            "haar_value"      : F_haar,
+            "delta"           : delta,
+            "n_parameters"    : circuit.num_parameters,
+            "circuit_depth"   : circuit.depth(),
+            "ratio"           : ratio,
+            "n_qubits"        : circuit.num_qubits,
+            "d"               : d,
+            "t"               : t,
+            "n_samples"       : np.sqrt(cumulative_pairs),
+            "device"          : str(device),
+            "dtype"           : str(dtype),
+            "total_pairs"     : cumulative_pairs,
+            "total"           : cumulative_total,
+            "sum_sq"          : cumulative_sum_sq,
+        }
         if save:
             save_function()
-        return F_p
+        if verbose:
+            verbose_print()
+        return result
         
 
 
     # ── 2. Sampling ────────────────────────────────────────────────────────────
 
-    print(f"Sampling unitaries and computing frame potential on device: {device} ...")
     if device.type == "cuda":
         # ── 2.1. Sample directly on GPU ────────────────────────────────────────────
         Us_gpu_A = sample_unitaries_gpu(circuit, n_samples//2, device=device, verbose=verbose, parameter_composer=parameter_composer)
         Us_gpu_B = sample_unitaries_gpu(circuit, n_samples//2, device=device, verbose=verbose, parameter_composer=parameter_composer)
     else:
-        warnings.warn("Intel XPU or CPU detected: performance may be poor due to immature PyTorch/XPU support. Consider using CUDA if available.")
+        # warnings.warn("Intel XPU or CPU detected: performance may be poor due to immature PyTorch/XPU support. Consider using CUDA if available.")
         # ── 2.2. Sample on CPU ─────────────────────────────────────────────────────
         rng = np.random.default_rng(seed)
         Us_cpu_A = sample_unitaries_cpu(circuit, n_samples//2, rng=rng, verbose=verbose, parameter_composer=parameter_composer)
@@ -513,8 +558,6 @@ def compute_frame_potential_gpu(
         Us_gpu_B = to_gpu(Us_cpu_B, device, dtype=dtype)
 
     # ── 3. Compute on GPU ────────────────────────────────────────────────────
-    if verbose:
-        print("Computing frame potential on GPU ...")
 
     result = frame_potential_gpu(Us_gpu_A, Us_gpu_B, t=t, device=device)
     F = result["frame_potential"]
@@ -544,9 +587,9 @@ def compute_frame_potential_gpu(
         "n_samples"       : n_samples,
         "device"          : str(device),
         "dtype"           : str(dtype),
-        "total_pairs": result["total_pairs"],
-        "total": result["total"],
-        "sum_sq": result["sum_sq"],
+        "total_pairs"     : result["total_pairs"],
+        "total"           : result["total"],
+        "sum_sq"          : result["sum_sq"],
     }
 
     if save:
