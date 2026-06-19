@@ -202,6 +202,8 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
         instructions.append(instruction)
 
     parameters = sample_parameters(batch_size, n_params+1, device)
+    if parameter_composer is not None:
+        parameter_composer(parameters)
 
     unitaries = torch.eye(
         2**circuit.num_qubits,

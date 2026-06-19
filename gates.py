@@ -57,11 +57,30 @@ def apply_Control_gate(U, control_qubit, target_qubit, n_qubits, gate_matrix):
     # This means we need to take the tensor product of I with the cx gate at the right place
     # We suppose the control and target qubits are adjacent for simplicity
     device = U.device
-    if control_qubit < target_qubit:
-        full_gate = torch.kron(torch.kron(torch.eye(2**control_qubit, dtype=torch.complex64, device=U.device), gate_matrix), torch.eye(2**(n-control_qubit-2), dtype=torch.complex64, device=U.device))
+    if torch.abs(control_qubit - target_qubit) == 1:
+        if control_qubit < target_qubit:
+            full_gate = torch.kron(torch.kron(torch.eye(2**control_qubit, dtype=torch.complex64, device=U.device), gate_matrix), torch.eye(2**(n-control_qubit-2), dtype=torch.complex64, device=U.device))
+        else:
+            full_gate = torch.kron(torch.kron(torch.eye(2**target_qubit, dtype=torch.complex64, device=U.device), gate_matrix), torch.eye(2**(n-target_qubit-2), dtype=torch.complex64, device=U.device))
+        return torch.matmul(full_gate, U)
     else:
-        full_gate = torch.kron(torch.kron(torch.eye(2**target_qubit, dtype=torch.complex64, device=U.device), gate_matrix), torch.eye(2**(n-target_qubit-2), dtype=torch.complex64, device=U.device))
-    return torch.matmul(full_gate, U)
+
+        size_between = torch.abs(control_qubit - target_qubit) - 1
+        A = torch.eye(size_between, dtype=torch.complex64, device=U.device)
+        D = A.copy()
+        B = A.copy()
+        C = A.copy()
+        A = torch.kron(A, gate_matrix[0:2, 0:2])
+        B = torch.kron(B, gate_matrix[0:2, 2:4])
+        C = torch.kron(C, gate_matrix[2:4, 0:2])
+        D = torch.kron(D, gate_matrix[2:4, 2:4])
+        gate = torch.cat([
+            torch.cat([A, B], dim=1),
+            torch.cat([C, D], dim=1)
+            ], dim=0)
+        
+        full_gate = torch.kron(torch.kron(torch.eye(2**min(control_qubit, target_qubit), dtype=torch.complex64, device=U.device), gate), torch.eye(2**(n-max(control_qubit, target_qubit)-1), dtype=torch.complex64, device=U.device))
+        return torch.matmul(full_gate, U)
 
 def rx(theta):
     """
