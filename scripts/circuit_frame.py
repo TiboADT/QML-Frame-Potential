@@ -1,5 +1,5 @@
 from circuit_generation import *
-from frame_potential_gpu import compute_frame_potential_gpu
+from frame_potential_gpu import compute_frame_potential_gpu, make_parameter_composer
 from itertools import product
 from numpy import arccos, cos, sin, pi
 
@@ -52,10 +52,10 @@ def circuit_frame_evaluation(name = None,n_qubits=8,
         for n_qubits,reps,t in product(range_n_qubits, range_reps, range_t):
             acos_list = []
             circuit = perfectSU4_anzatz(n_qubits=n_qubits,reps=reps, parameter_prefix="θ", acos_list=acos_list)
-
-            def parameter_composer(params):
-                for i in acos_list:
-                    params[i] = arccos(params[i]/pi -1)
+            if compose_parameters:
+                parameter_composer = make_parameter_composer(acos_list=acos_list)
+            else:
+                parameter_composer = None
             
             if compose_parameters:
                 name = f"perfectSU4_composed"

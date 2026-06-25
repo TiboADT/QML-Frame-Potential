@@ -161,19 +161,21 @@ def sample_unitaries_cpu(
         if parameter_composer is not None:
             parameter_composer(theta)
         Us[i]  = sample_unitary(circuit, theta)
-
     return Us
 
 
 # ── GPU sampling ───────────────────────────────────────────────────────
 
-def sample_parameters(batch_size, n_params, device):
+def sample_parameters(batch_size, n_params, device, parameter_composer=None, **kwargs):
     try:
-        return 2 * torch.pi * torch.rand(
+        parameters =  2 * torch.pi * torch.rand(
             batch_size,
             n_params,
             device=device
         )
+        if parameter_composer is not None:
+            parameter_composer(parameters)
+        return parameters
     except RuntimeError:
         # fallback
         cpu_params = 2 * torch.pi * torch.rand(
@@ -201,9 +203,7 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
     for instruction in circuit:
         instructions.append(instruction)
 
-    parameters = sample_parameters(batch_size, n_params+1, device)
-    if parameter_composer is not None:
-        parameter_composer(parameters)
+    parameters = sample_parameters(batch_size, n_params+1, device, parameter_composer=parameter_composer)
 
     unitaries = torch.eye(
         2**circuit.num_qubits,
@@ -211,8 +211,6 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
         device=device
     ).expand(batch_size, 2**circuit.num_qubits, 2**circuit.num_qubits).clone()
 
-    #DO TO support composition of the parameters,
-    # we would need to apply the parameter_composer function to the parameters before applying the operations.
 
 
     i = 0
@@ -227,8 +225,8 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
             # kind horrible but i cant find a way to extract the control and target qubits without going through the instruction object, which is not very user-friendly.
             control_qubit = circuit.find_bit(instruction.qubits[0]).index
             target_qubit = circuit.find_bit(instruction.qubits[1]).index
-            unitaries = apply_Control_gate(unitaries, control_qubit=control_qubit, 
-                                           target_qubit=target_qubit, n_qubits=circuit.num_qubits, 
+            unitaries = apply_Control_gate(unitaries, control_qubit=control_qubit,
+                                           target_qubit=target_qubit, n_qubits=circuit.num_qubits,
                                             gate_matrix = gate_matrix)
         else:
             qubit_index = circuit.find_bit(instruction.qubits[0]).index
@@ -236,7 +234,34 @@ def sample_unitaries_gpu(circuit: QuantumCircuit,
             unitaries = apply_1q_gate(unitaries, gate_matrix, qubit_index=qubit_index, n_qubits=circuit.num_qubits)
     return unitaries
 
+def make_parameter_composer(acos_list: list[int]):
+    """
+    Returns a vectorised parameter_composer that operates in-place
+    on a (batch_size, n_params) tensor.
 
+    For each index i in acos_list:
+        params[:, i] = arccos(params[:, i] / π - 1)
+
+    This replaces the scalar loop:
+        for i in acos_list:
+            params[i] = arccos(params[i] / pi - 1)
+    """
+    if not acos_list:
+        return None
+
+    def parameter_composer(params: torch.Tensor) -> None:
+        # params: (batch_size, n_params) — modified in-place
+        idx = torch.tensor(acos_list, dtype=torch.long, device=params.device)
+        # params[:, idx] shape: (batch_size, len(acos_list))
+        # Full operation stays on GPU, no Python loop, no scalar ops
+        params[:, idx] = torch.arccos(
+            (params[:, idx] / torch.pi - 1).clamp(-1.0, 1.0)
+        )
+        # .clamp is required: arccos is only defined on [-1, 1].
+        # Without it, values slightly outside that range (floating point
+        # noise) produce NaN silently.
+
+    return parameter_composer
 
 # ── GPU transfer ──────────────────────────────────────────────────────────────
 

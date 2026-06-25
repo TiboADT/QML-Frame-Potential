@@ -1,4 +1,5 @@
 import torch
+from numpy import abs
 
 def get_gate_matrix(operation, parameters, i):
     gate_name = operation.name
@@ -49,6 +50,7 @@ def apply_Control_gate(U, control_qubit, target_qubit, n_qubits, gate_matrix):
     control_qubit: int
     target_qubit: int
     n_qubits: int
+    gate_matrix: (B, 4, 4)
     returns: (B, 2^n, 2^n)
     """
     n = n_qubits
@@ -57,29 +59,42 @@ def apply_Control_gate(U, control_qubit, target_qubit, n_qubits, gate_matrix):
     # This means we need to take the tensor product of I with the cx gate at the right place
     # We suppose the control and target qubits are adjacent for simplicity
     device = U.device
-    if torch.abs(control_qubit - target_qubit) == 1:
+    # change the gate_matrix if the control qubit is greater than the target qubit
+    if control_qubit > target_qubit:
+        swap_matrix = torch.tensor([[1, 0, 0, 0],
+                                    [0, 0, 1, 0],
+                                    [0, 1, 0, 0],
+                                    [0, 0, 0, 1]], dtype=torch.complex64, device=device)
+        gate_matrix = torch.matmul(torch.matmul(swap_matrix, gate_matrix), swap_matrix)
+    if abs(control_qubit - target_qubit) == 1:
         if control_qubit < target_qubit:
             full_gate = torch.kron(torch.kron(torch.eye(2**control_qubit, dtype=torch.complex64, device=U.device), gate_matrix), torch.eye(2**(n-control_qubit-2), dtype=torch.complex64, device=U.device))
         else:
             full_gate = torch.kron(torch.kron(torch.eye(2**target_qubit, dtype=torch.complex64, device=U.device), gate_matrix), torch.eye(2**(n-target_qubit-2), dtype=torch.complex64, device=U.device))
+        
         return torch.matmul(full_gate, U)
     else:
 
-        size_between = torch.abs(control_qubit - target_qubit) - 1
-        A = torch.eye(size_between, dtype=torch.complex64, device=U.device)
-        D = A.copy()
-        B = A.copy()
-        C = A.copy()
-        A = torch.kron(A, gate_matrix[0:2, 0:2])
-        B = torch.kron(B, gate_matrix[0:2, 2:4])
-        C = torch.kron(C, gate_matrix[2:4, 0:2])
-        D = torch.kron(D, gate_matrix[2:4, 2:4])
+        size_between = abs(control_qubit - target_qubit) - 1
+        A = torch.eye(2**size_between, dtype=torch.complex64, device=U.device)
+        D = torch.eye(2**size_between, dtype=torch.complex64, device=U.device)
+        B = torch.eye(2**size_between, dtype=torch.complex64, device=U.device)
+        C = torch.eye(2**size_between, dtype=torch.complex64, device=U.device)
+
+        A = torch.kron(A, gate_matrix[:,0:2, 0:2])
+        B = torch.kron(B, gate_matrix[:,0:2, 2:4])
+        C = torch.kron(C, gate_matrix[:,2:4, 0:2])
+        D = torch.kron(D, gate_matrix[:,2:4, 2:4])
+
         gate = torch.cat([
-            torch.cat([A, B], dim=1),
-            torch.cat([C, D], dim=1)
-            ], dim=0)
+            torch.cat([A, B], dim=2),
+            torch.cat([C, D], dim=2)
+            ], dim=1)
         
-        full_gate = torch.kron(torch.kron(torch.eye(2**min(control_qubit, target_qubit), dtype=torch.complex64, device=U.device), gate), torch.eye(2**(n-max(control_qubit, target_qubit)-1), dtype=torch.complex64, device=U.device))
+        before_matrix = torch.eye(2**min(control_qubit, target_qubit), dtype=torch.complex64, device=U.device)
+        after_matrix = torch.eye(2**(n-max(control_qubit, target_qubit)-1), dtype=torch.complex64, device=U.device)
+        full_gate = torch.kron(torch.kron(before_matrix, gate), after_matrix)
+
         return torch.matmul(full_gate, U)
 
 def rx(theta):

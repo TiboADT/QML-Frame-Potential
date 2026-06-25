@@ -6,10 +6,10 @@ from scripts.rolling_in_the_depth import *
 from scripts.who_let_the_circuit_out import *
 from data_loading import Build_artitifical_data_set
 from scripts.circuit_frame import *
-import torch
 
 from gates import get_gate_matrix
-from frame_potential_gpu import get_device, sample_unitaries_gpu, recommended_batch_size, _get_vram_gb, sample_unitaries_cpu, to_gpu
+from frame_potential_gpu import get_device, sample_unitaries_gpu, recommended_batch_size, _get_vram_gb, sample_unitaries_cpu, to_gpu, make_parameter_composer, sample_parameters
+import torch
 
 import time
 
@@ -96,22 +96,21 @@ if __name__ == "__main__" and False:
         print("--------------------------------------------------")
 
 
-
-
-if __name__ == "__main__":
+if __name__ == "__main__": 
     # We can run the circuit frame evaluation for different ansatzes and different numbers of qubits, 
     # to see how the frame potential evolves with the depth of the circuit, 
     # and how it compares to the Haar value. 
 
-    circuit_frame_evaluation(name = "set",n_qubits=4,converge=True,compose_parameters=False, range_t=[2])
-    circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,converge=True,compose_parameters=False, range_t=[2])
-
-    # circuit_frame_evaluation(name = "perfectSU4",n_qubits=4,compose_parameters=True,n_samples=2000)
+    #circuit_frame_evaluation(name = "set",n_qubits=6,converge=True,compose_parameters=False, range_t=[2])
+    circuit_frame_evaluation(name = "perfectSU4",n_qubits=6,converge=True,compose_parameters=False, range_t=[2])
 
 
+    circuit_frame_evaluation(name = "perfectSU4",n_qubits=6,converge=True,compose_parameters=True, range_t=[2])
 
 
-if False:
+
+
+if __name__ == "__main__" and False: 
 
     n_features = 8
     n_classes = 2
@@ -125,3 +124,28 @@ if False:
                          target_accuracy=0.9, max_depth=20, 
                          X=X, y=y)
 
+if __name__ == "__main__" and False: 
+    import qiskit
+    acos_list = []
+    circuit = perfectSU4_anzatz(n_qubits=2,reps=0, parameter_prefix="θ", acos_list=acos_list)
+    parameter_composer = make_parameter_composer(acos_list=acos_list)
+    print(f"acos_list: {acos_list}")
+    print(circuit.draw())
+    compute_frame_potential_gpu(circuit, t=2, converge_before_return=True, verbose=True)
+    compute_frame_potential_gpu(circuit, t=2, converge_before_return=True, verbose=True, parameter_composer=parameter_composer)
+
+
+if __name__ == "__main__" and False: 
+    n_qubits = 6
+    reps = 2
+    number = 5
+    n_samples = 2000
+    t = 2
+    circuit = build_ansatz(name="set", n_qubits=n_qubits, reps=reps, number=number)
+
+    F_p = compute_frame_potential_gpu(circuit, t=t, 
+        n_samples=n_samples, converge_before_return=True,
+        circuit_info={"name": f"set_{number}", "n_qubits": n_qubits, "reps": reps}, 
+        verbose=False, 
+        force_save=False,
+        save=True )
